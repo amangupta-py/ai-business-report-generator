@@ -170,6 +170,109 @@ def print_weekly_comparison(weekly: dict) -> None:
           f"{arrow(weekly['aov_change_pct'])} {weekly['aov_change_pct']:+.1f}%")
     print("=" * 60)
 
+def get_top_performers(df: pd.DataFrame, days: int = 7) -> dict:
+    """
+    Find top products, channel, and city for the last N days (default 7).
+    Returns a dict with structured data for AI summarization.
+    """
+    latest_date = df["date"].max().date()
+    start_date = latest_date - pd.Timedelta(days=days - 1)
+
+    window_df = df[
+        (df["date"].dt.date >= start_date) & (df["date"].dt.date <= latest_date)
+    ].copy()
+
+    total_revenue = window_df["revenue"].sum()
+
+    # Top 3 products by revenue
+    product_stats = (
+        window_df.groupby(["sku", "product_name"])
+        .agg(revenue=("revenue", "sum"), units=("quantity", "sum"))
+        .reset_index()
+        .sort_values("revenue", ascending=False)
+        .head(3)
+    )
+
+    top_products = [
+        {
+            "sku": row["sku"],
+            "name": row["product_name"],
+            "revenue": float(row["revenue"]),
+            "units": int(row["units"]),
+            "share_pct": round((row["revenue"] / total_revenue) * 100, 2),
+        }
+        for _, row in product_stats.iterrows()
+    ]
+
+    # Channel breakdown
+    channel_stats = (
+        window_df.groupby("channel")
+        .agg(revenue=("revenue", "sum"), orders=("order_id", "count"))
+        .reset_index()
+        .sort_values("revenue", ascending=False)
+    )
+
+    channels = [
+        {
+            "channel": row["channel"],
+            "revenue": float(row["revenue"]),
+            "orders": int(row["orders"]),
+            "share_pct": round((row["revenue"] / total_revenue) * 100, 2),
+        }
+        for _, row in channel_stats.iterrows()
+    ]
+
+    # Top 3 cities
+    city_stats = (
+        window_df.groupby("city")
+        .agg(revenue=("revenue", "sum"), orders=("order_id", "count"))
+        .reset_index()
+        .sort_values("revenue", ascending=False)
+        .head(3)
+    )
+
+    top_cities = [
+        {
+            "city": row["city"],
+            "revenue": float(row["revenue"]),
+            "orders": int(row["orders"]),
+            "share_pct": round((row["revenue"] / total_revenue) * 100, 2),
+        }
+        for _, row in city_stats.iterrows()
+    ]
+
+    return {
+        "window_start": start_date.isoformat(),
+        "window_end": latest_date.isoformat(),
+        "total_revenue": float(total_revenue),
+        "top_products": top_products,
+        "channels": channels,
+        "top_cities": top_cities,
+    }
+
+def print_top_performers(performers: dict) -> None:
+    """Pretty-print the top performers section."""
+    print("\n" + "=" * 60)
+    print(f"TOP PERFORMERS — Last 7 Days "
+          f"({performers['window_start']} → {performers['window_end']})")
+    print("=" * 60)
+
+    print("\nTop Products:")
+    for i, p in enumerate(performers["top_products"], 1):
+        print(f"  {i}. {p['name']:<22} ₹{p['revenue']:>10,.0f}  "
+              f"({p['units']} units, {p['share_pct']:.1f}% of revenue)")
+
+    print("\nChannel Breakdown:")
+    for c in performers["channels"]:
+        print(f"  {c['channel']:<14} ₹{c['revenue']:>10,.0f}  "
+              f"({c['orders']} orders, {c['share_pct']:.1f}% of revenue)")
+
+    print("\nTop Cities:")
+    for i, ct in enumerate(performers["top_cities"], 1):
+        print(f"  {i}. {ct['city']:<14} ₹{ct['revenue']:>10,.0f}  "
+              f"({ct['orders']} orders, {ct['share_pct']:.1f}% of revenue)")
+    print("=" * 60)
+
 if __name__ == "__main__":
     df = load_sales_data()
     inspect_data(df)
@@ -179,3 +282,6 @@ if __name__ == "__main__":
 
     weekly = get_weekly_comparison(df)
     print_weekly_comparison(weekly)
+
+    performers = get_top_performers(df)
+    print_top_performers(performers)
